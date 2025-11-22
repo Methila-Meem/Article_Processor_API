@@ -1,53 +1,55 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uuid
-import requests
 import os
 import httpx
-from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="ArticleSession API", version="1.0.0")
 
-# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # Allow all for testing. Replace with frontend domain later.
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],   # Allow POST + OPTIONS
-    allow_headers=["*"],   # Allow JSON headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-N8N_Webhook_URL = os.getenv("N8N_WEBHOOK_URL")
+# Read once at startup
+# N8N_Webhook_URL = os.getenv("N8N_WEBHOOK_URL")
+N8N_Webhook_URL = "https://methilameem.app.n8n.cloud/webhook-test/a60f85db-cb61-4006-b291-c8552f4962a8"
 
-@app.get("/")
-async def root():
-    return {"message": "ArticleSession API is running."}
+if not N8N_Webhook_URL:
+    # Fail fast: environment variable must be set
+    raise RuntimeError("N8N_WEBHOOK_URL environment variable is not set. Set it to your n8n webhook URL.")
 
 class ArticleRequest(BaseModel):
     email: str
     article_url: str
 
+@app.get("/")
+async def root():
+    return {"message": "ArticleSession API is running."}
+
 @app.post("/submit-article")
 async def receive_from_lovable(data: ArticleRequest):
-    # Generate session ID
     session_id = str(uuid.uuid4())
 
-    # Prepare payload for n8n
     payload = {
         "session_id": session_id,
         "email": data.email,
         "article_url": data.article_url
     }
 
-    # Send to n8n webhook
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            await client.post(N8N_Webhook_URL, json=payload)
+            resp = await client.post(N8N_Webhook_URL, json=payload)
+            resp.raise_for_status()   # raise for non-2xx
+        except httpx.HTTPStatusError as exc:
+            # n8n responded with non-2xx
+            return {"status": "error", "message": f"n8n returned {exc.response.status_code}: {exc.response.text}"}
         except Exception as e:
+            # Could be network error, invalid URL (None), etc.
             return {"status": "error", "message": str(e)}
 
-    return {
-        "status": "received",
-        "session_id": session_id
-    }
+    return {"status": "received", "session_id": session_id}
