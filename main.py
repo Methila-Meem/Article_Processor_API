@@ -3,6 +3,7 @@ from pydantic import BaseModel
 import uuid
 import requests
 import os
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -28,24 +29,25 @@ class ArticleRequest(BaseModel):
     article_url: str
 
 @app.post("/submit-article")
-async def submit_article(data: ArticleRequest):
-
+async def receive_from_lovable(data: ArticleRequest):
+    # Generate session ID
     session_id = str(uuid.uuid4())
 
-    payload ={
+    # Prepare payload for n8n
+    payload = {
         "session_id": session_id,
         "email": data.email,
-        "article_url": data.article_url
+        "article": data.article
     }
 
-    try:
-        response = requests.post(N8N_Webhook_URL, json=payload)
-        response.raise_for_status()
-    except  requests.RequestException as e:
-        print("Error forwarding data to n8n webhook:", e)
-        return{"status": "error", "message": "Failed to forward data to n8n webhook."}
+    # Send to n8n webhook
+    async with httpx.AsyncClient() as client:
+        try:
+            await client.post(N8N_Webhook_URL, json=payload)
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
-    print(f"Received article submission from {data.email} for URL: {data.article_url}") 
-    print("Forwarded data to n8n webhook with session_id:", session_id)
-    
-    return{"status": "ok", "message": "Data received."}
+    return {
+        "status": "received",
+        "session_id": session_id
+    }
