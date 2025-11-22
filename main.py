@@ -37,7 +37,7 @@ async def receive_from_lovable(data: ArticleRequest):
     payload = {
         "session_id": session_id,
         "email": data.email,
-        "article": data.article
+        "article_url": data.article_url
     }
 
     # Send to n8n webhook
